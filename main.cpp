@@ -4,6 +4,6 @@
 int main(int argc, char *argv[])
 {
     QCoreApplication a(argc, argv);
-    ProtocolZIMA zima("COM6");
+    ProtocolZIMA zima("COM3");
     return a.exec();
 }

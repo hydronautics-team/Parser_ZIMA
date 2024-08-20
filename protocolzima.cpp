@@ -17,7 +17,7 @@ ProtocolZIMA::ProtocolZIMA(QString portName, int baudRate,
     zima.setFlowControl(QSerialPort::NoFlowControl);
     zima.open(QIODevice::ReadWrite);
 
-    if (zima.open(QIODevice::ReadWrite)){
+    if (zima.isOpen()){
         qDebug()<<" port was opened";
     }
     else {
@@ -31,16 +31,17 @@ ProtocolZIMA::ProtocolZIMA(QString portName, int baudRate,
         int size = zima_buffer.size();
         if (size !=0)
         {
-            char end = zima_buffer.at(size - 1); //проверка на последний символ, пока не разобралась какой, но поверим
-            if (end == 10)
+            char end = zima_buffer.count(10); //проверка на последний символ, пока не разобралась какой, но поверим
+            if (end > 0)
             {
                 parseBuffer();
             }
         }
     });
+    timer_send = new QTimer(this);
+    connect(timer_send, &QTimer::timeout, this, &ProtocolZIMA::sendSoundSlot);
+    timer_send->start(1000);
 
-    connect(this, &ProtocolZIMA::sendSoundSignal, this, &ProtocolZIMA::sendSoundSlot);
-    sendData();
 }
 
 
@@ -49,17 +50,23 @@ void ProtocolZIMA::parseBuffer()
     if (test_messege) qDebug() << "parseBuffer";
     int count = zima_buffer.count(36); //считаем сколько раз встретилось начало сообщения символ - $
     if (test_messege) qDebug() << count;
-    while (count !=0)
+    while (count != 0)
     {
         count = count - 1;
         qint8 index = zima_buffer.indexOf(36); //поиск индекса $
-        if (index == -1)
+        qint8 crc_in = zima_buffer.indexOf(42); //поиск индекса *
+        uint end = crc_in + 5; //последний символ посылки
+        uint size_msg = zima_buffer.size();
+        if (end > size_msg) return;
+        if ((index == -1) or (crc_in == -1))
         {
             // Не найдено сообщение
             qDebug() << "Нет сообщения в буфере";
             return;
-            qint8 crc_in = zima_buffer.indexOf(42); //поиск индекса *
-            uint end = crc_in + 5; //последний символ посылки
+        }
+        else
+        {
+
             QByteArray title = zima_buffer.mid (index+1, 5);
             findTitle(index, crc_in, end, title);
         }
@@ -67,11 +74,23 @@ void ProtocolZIMA::parseBuffer()
 
 }
 
+Title stringToTitle(const QByteArray tit) {
+    if (tit == "PZMAE") return PZMAE;
+    if (tit == "PZMAF") return PZMAF;
+    if (tit == "PZMAG") return PZMAG;
+    if (tit == "PZMA0") return PZMA0;
+    return UNKNOWN;
+}
+
 void ProtocolZIMA::findTitle(qint8 index, qint8 crc_in, uint end, QByteArray title)
 {
-    if (title == "PZMAE")
-    {
-        QByteArray msg = zima_buffer.mid(index+1, crc_in-1);
+    Title titleEnum = stringToTitle(title);
+    int count;
+    QByteArray msg;
+
+    switch (titleEnum) {
+    case PZMAE:
+        msg = zima_buffer.mid(index+1, crc_in-1);
         if (crc_real(crc_in) == crc(msg))
         {
             parsePZMAE(msg);
@@ -80,13 +99,14 @@ void ProtocolZIMA::findTitle(qint8 index, qint8 crc_in, uint end, QByteArray tit
         }
         else
         {
-            qDebug () << "PZMAE crc не верна";
-            zima_buffer.remove(0, end);
+            if (test_messege) qDebug() << "PZMAE crc не верна";
+            count = zima_buffer.count(42); //считаем сколько раз встретилось начало сообщения символ - $
+            if (count != 0)
+                zima_buffer.remove(0, end);
         }
-    }
-    if (title == "PZMAF")
-    {
-        QByteArray msg = zima_buffer.mid(index+1, crc_in-1);
+        break;
+    case PZMAF:
+        msg = zima_buffer.mid(index+1, crc_in-1);
         if (crc_real(crc_in) == crc(msg))
         {
             parsePZMAF(msg);
@@ -95,13 +115,14 @@ void ProtocolZIMA::findTitle(qint8 index, qint8 crc_in, uint end, QByteArray tit
         }
         else
         {
-            qDebug () << "PZMAF crc не верна";
-            zima_buffer.remove(0, end);
+            if (test_messege) qDebug() << "PZMAF crc не верна";
+            count = zima_buffer.count(42); //считаем сколько раз встретилось начало сообщения символ - $
+            if (count != 0)
+                zima_buffer.remove(0, end);
         }
-    }
-    if (title == "PZMAG")
-    {
-        QByteArray msg = zima_buffer.mid(index+1, crc_in-1);
+        break;
+    case PZMAG:
+        msg = zima_buffer.mid(index+1, crc_in-1);
         if (crc_real(crc_in) == crc(msg))
         {
             parsePZMAG(msg);
@@ -110,9 +131,41 @@ void ProtocolZIMA::findTitle(qint8 index, qint8 crc_in, uint end, QByteArray tit
         }
         else
         {
-            qDebug () << "PZMAG crc не верна";
+            if (test_messege) qDebug() << "PZMAG crc не верна";
+            count = zima_buffer.count(42); //считаем сколько раз встретилось начало сообщения символ - $
+            if (count != 0)
+                zima_buffer.remove(0, end);
+        }
+        break;
+    case PZMA0:
+        msg = zima_buffer.mid(index+1, crc_in-1);
+        if (crc_real(crc_in) == crc(msg))
+        {
+            parsePZMA0(msg);
+            //                updateData(uwave);
             zima_buffer.remove(0, end);
         }
+        else
+        {
+            if (test_messege) qDebug() << "PZMA0 crc не верна";
+            count = zima_buffer.count(42); //считаем сколько раз встретилось начало сообщения символ - $
+            if (count != 0)
+                zima_buffer.remove(0, end);
+        }
+        break;
+    case UNKNOWN:
+        if (test_messege) qDebug() << "не известное сообщение";
+        count = zima_buffer.count(42); //считаем сколько раз встретилось начало сообщения символ - $
+        if (count != 0)
+            zima_buffer.remove(0, end);
+        break;
+    default:
+        if (test_messege) qDebug() << "не известное сообщение";
+        int count = zima_buffer.count(42); //считаем сколько раз встретилось начало сообщения символ - $
+        if (count != 0)
+            zima_buffer.remove(0, end);
+        break;
+
     }
 }
 
@@ -215,23 +268,28 @@ void ProtocolZIMA::parsePZMAG(QByteArray msg)
     msg.remove(0, index+1);
 }
 
+void ProtocolZIMA::parsePZMA0(QByteArray msg)
+{
+    if (test_messege) qDebug() << msg;
+    int index =msg.indexOf(44);//ищем первую запятую, перед ней идет не интересный заголовок
+    msg.remove(0, index+1); // удаляем заголовок
+    index =msg.indexOf(44);//ищем запятую
+    data.pzma0.Error_code = atoi(msg.mid(0, index));
+    if (test_messege) qDebug() << "pzma0.Error_code: "<< data.pzma0.Error_code;
+    msg.remove(0, index+1);
+}
+
 void ProtocolZIMA::sendSoundSlot()
 {
+    if (test_messege) qDebug() << "TIMEOUT";
     if (zima.isOpen())
     {
-        QByteArray bufArray = "$PZMAC,1,467*41\n\r";
+        QByteArray bufArray = "$PZMAC,1,362*43\n\r";
         int size = bufArray.size();
-        qDebug() << "Проверочка на размер bufArray.size " << array.bufArray();
+        if (test_messege) qDebug() << "Проверочка на размер bufArray.size " << bufArray.size();
         char *PZMAC = bufArray.data();
-        ha.write(PZMAC, size);
-        ha.waitForBytesWritten();
-
-        bufArray = "$PZMAC,1,363*42\n\r";
-        int size = bufArray.size();
-        qDebug() << "Проверочка на размер bufArray.size " << array.bufArray();
-        char *PZMAC = bufArray.data();
-        ha.write(PZMAC, size);
-        ha.waitForBytesWritten();
+        zima.write(PZMAC, size);
+        zima.waitForBytesWritten();
     }
     else
     {
