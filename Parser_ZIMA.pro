@@ -3,7 +3,7 @@ QT -= gui
 
 CONFIG += c++11
 
-TARGET = untitled23
+TARGET = Parser_ZIMA
 CONFIG += console
 CONFIG -= app_bundle
 
