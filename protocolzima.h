@@ -87,6 +87,7 @@ class ProtocolZIMA : public QObject
 public:
     explicit ProtocolZIMA(QString portName, int baudRate = 9600,
                           QObject *parent = nullptr);
+    ZimaData data; ///< Данные от ГАНС
 protected:
     void findTitle(qint8 index, qint8 crc_in, uint end, QByteArray title); //поиск заголовка
     void parseBuffer();
@@ -101,7 +102,6 @@ protected:
     void parsePZMAG(QByteArray msg); ///< Показания встроенного инклинометра*
     void parsePZMA0(QByteArray msg); ///< Сообщение IC_D2H_ACK - реакция устройства на поступивший от управляющей системы запрос.
 
-    ZimaData data; ///< Данные от ГАНС
     QTimer* timer_send; //таймер для отправки данных на ГАНС
 
 private slots:
